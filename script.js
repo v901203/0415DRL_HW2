@@ -271,7 +271,7 @@ function drawLearningChart(qRewards, sRewards) {
 // ─────────────────────────────────────────────────────────────
 const ACTION_ARROWS = ['↑', '↓', '←', '→'];
 
-function drawPolicyCanvas(canvasId, Q, rows, cols, qColor) {
+function drawPolicyCanvas(canvasId, Q, rows, cols, qColor, pathStates) {
   const canvas = document.getElementById(canvasId);
   const CELL = 42, GAP = 2;
   const W = cols * (CELL + GAP) - GAP;
@@ -287,11 +287,18 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor) {
   const start = (rows - 1) * cols;
   const goal  = rows * cols - 1;
 
+  // Build path lookup: state -> step index
+  const pathMap = new Map();
+  if (pathStates) {
+    pathStates.forEach((s, i) => { if (!pathMap.has(s)) pathMap.set(s, i); });
+  }
+
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const idx = r * cols + c;
       const x = c * (CELL + GAP);
       const y = r * (CELL + GAP);
+      const onPath = pathMap.has(idx);
 
       // Cell background
       ctx.beginPath();
@@ -303,16 +310,26 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor) {
         ctx.fillStyle = 'rgba(39,174,96,0.35)';
       } else if (cliffSet.has(idx)) {
         ctx.fillStyle = 'rgba(192,57,43,0.4)';
+      } else if (onPath) {
+        // Path cell: brighter tinted background
+        const rgb = qColor === '#ff5f5f' ? '255,95,95' : '0,212,232';
+        ctx.fillStyle = `rgba(${rgb},0.18)`;
       } else {
         ctx.fillStyle = 'rgba(255,255,255,0.04)';
       }
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-      ctx.lineWidth = 1;
+
+      // Border: highlighted for path cells
+      if (onPath && idx !== start && idx !== goal) {
+        ctx.strokeStyle = qColor;
+        ctx.lineWidth = 2;
+      } else {
+        ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+        ctx.lineWidth = 1;
+      }
       ctx.stroke();
 
       // Label or arrow
-      ctx.font = 'bold 14px Inter, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const cx = x + CELL / 2;
@@ -335,11 +352,41 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor) {
         const qRow = Q[idx];
         let best = 0;
         for (let a = 1; a < qRow.length; a++) if (qRow[a] > qRow[best]) best = a;
-        ctx.fillStyle = qColor;
-        ctx.font = '16px sans-serif';
+        ctx.fillStyle = onPath ? '#fff' : qColor;
+        ctx.font = onPath ? 'bold 16px sans-serif' : '16px sans-serif';
         ctx.fillText(ACTION_ARROWS[best], cx, cy);
       }
+
+      // Step number badge on path cells (skip start/goal)
+      if (onPath && idx !== start && idx !== goal && !cliffSet.has(idx)) {
+        const step = pathMap.get(idx);
+        ctx.fillStyle = qColor;
+        ctx.font = 'bold 8px Inter, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        ctx.fillText(step, x + CELL - 3, y + 2);
+      }
     }
+  }
+
+  // Draw connecting line between path cells
+  if (pathStates && pathStates.length > 1) {
+    ctx.save();
+    ctx.strokeStyle = qColor;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.45;
+    ctx.setLineDash([4, 3]);
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    pathStates.forEach((s, i) => {
+      const pc = s % cols;
+      const pr = Math.floor(s / cols);
+      const px = pc * (CELL + GAP) + CELL / 2;
+      const py = pr * (CELL + GAP) + CELL / 2;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -386,21 +433,17 @@ function convergenceEpisode(rewards, threshold, window = 50) {
 // ─────────────────────────────────────────────────────────────
 // 10. Analysis section
 // ─────────────────────────────────────────────────────────────
-function updateAnalysis(qRewards, sRewards, qQ, sQ, params) {
-  const { rows, cols, epsilon } = params;
+function updateAnalysis(qRewards, sRewards, qQ, sQ, params, qPath, sPath, qGoal, sGoal) {
+  const { epsilon } = params;
   const last100Q = qRewards.slice(-100);
   const last100S = sRewards.slice(-100);
   const stdQ = std(last100Q).toFixed(1);
   const stdS = std(last100S).toFixed(1);
   const avgQ = (last100Q.reduce((a,b)=>a+b,0)/100).toFixed(1);
   const avgS = (last100S.reduce((a,b)=>a+b,0)/100).toFixed(1);
-
   const threshold = -30;
   const convQ = convergenceEpisode(qRewards, threshold);
   const convS = convergenceEpisode(sRewards, threshold);
-
-  const { path: qPath, reachedGoal: qGoal } = greedyPath(qQ, rows, cols);
-  const { path: sPath, reachedGoal: sGoal } = greedyPath(sQ, rows, cols);
 
   const convText = convQ !== null && convS !== null
     ? (convQ < convS
@@ -539,11 +582,15 @@ async function runTraining() {
   setProgress(90, '繪製視覺化...');
   await sleep(30);
 
+  // Compute greedy paths
+  const { path: qPath, reachedGoal: qGoal } = greedyPath(qResult.Q, rows, cols);
+  const { path: sPath, reachedGoal: sGoal } = greedyPath(sResult.Q, rows, cols);
+
   // Draw
   drawLearningChart(qResult.rewards, sResult.rewards);
-  drawPolicyCanvas('q-policy-canvas', qResult.Q, rows, cols, '#ff5f5f');
-  drawPolicyCanvas('s-policy-canvas', sResult.Q, rows, cols, '#00d4e8');
-  updateAnalysis(qResult.rewards, sResult.rewards, qResult.Q, sResult.Q, params);
+  drawPolicyCanvas('q-policy-canvas', qResult.Q, rows, cols, '#ff5f5f', qPath);
+  drawPolicyCanvas('s-policy-canvas', sResult.Q, rows, cols, '#00d4e8', sPath);
+  updateAnalysis(qResult.rewards, sResult.rewards, qResult.Q, sResult.Q, params, qPath, sPath, qGoal, sGoal);
 
   setProgress(100, '完成！');
   await sleep(500);
