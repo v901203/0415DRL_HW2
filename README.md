@@ -1,14 +1,29 @@
 # 0415DRL_HW2 — Cliff Walking: Q-learning vs SARSA
 
-[![GitHub Pages](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-blue?style=flat-square)](https://v901203.github.io/0415DRL_HW2/)
+[![GitHub Pages](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-blue?style=flat-square&logo=github)](https://v901203.github.io/0415DRL_HW2/)
+[![HTML](https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white)](https://v901203.github.io/0415DRL_HW2/)
+[![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)](https://v901203.github.io/0415DRL_HW2/)
 
 互動式強化學習作業：比較 **Q-learning（Off-policy）** 與 **SARSA（On-policy）** 在 Cliff Walking 懸崖行走環境中的學習行為與策略差異。
 
 ---
 
-## 🌐 線上展示
+## 🌐 Live Demo
 
-**[👉 點此開啟 Live Demo](https://v901203.github.io/0415DRL_HW2/)**
+**👉 [https://v901203.github.io/0415DRL_HW2/](https://v901203.github.io/0415DRL_HW2/)**
+
+---
+
+## 📸 預覽截圖
+
+### 主頁面 — 參數設定與環境預覽
+![主頁面](assets/screenshot_home.png)
+
+### 學習曲線圖
+![學習曲線](assets/screenshot_chart.png)
+
+### 策略格子（Q-learning vs SARSA 路徑對比）
+![策略格子](assets/screenshot_policy.png)
 
 ---
 
@@ -16,7 +31,7 @@
 
 | 項目 | 設定 |
 |------|------|
-| 網格大小 | 4 × 12（可調整） |
+| 網格大小 | 4 × 12 |
 | 起點 (S) | 左下角 `(3, 0)` |
 | 終點 (G) | 右下角 `(3, 11)` |
 | 懸崖 (Cliff) | 底排，col 1–10 |
@@ -63,9 +78,12 @@ Q(s,a) ← Q(s,a) + α [r + γ · Q(s',a') − Q(s,a)]
 
 ## 📈 結果分析
 
-- **學習曲線**：SARSA（青色）每回合獎勵高於 Q-learning（紅色），因保守路徑較少掉崖
-- **策略差異**：Q-learning 策略緊貼懸崖底邊；SARSA 策略偏上一排，遠離危險
-- **穩定性**：Q-learning 因策略鄰近懸崖，探索誤差波動較大；SARSA 較穩定
+| 指標 | Q-learning | SARSA |
+|------|-----------|-------|
+| 更新規則 | `max Q(s',a')` Off-policy | `Q(s',a')` On-policy |
+| 路徑類型 | 緊貼懸崖（冒險型，步數少） | 遠離懸崖（保守型，步數多） |
+| 訓練期獎勵 | 較低（常掉崖） | 較高（較安全） |
+| 波動程度 | σ 較大 | σ 較小 |
 
 ---
 
@@ -82,11 +100,9 @@ Q(s,a) ← Q(s,a) + α [r + γ · Q(s',a') − Q(s,a)]
 直接用瀏覽器開啟 `index.html` 即可，無需安裝任何套件：
 
 ```bash
-# Clone repository
 git clone https://github.com/v901203/0415DRL_HW2.git
 cd 0415DRL_HW2
-
-# Open in browser (Windows)
+# Windows
 start index.html
 ```
 
