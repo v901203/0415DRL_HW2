@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HW2 — Cliff Walking: Q-learning vs SARSA</title>
+  <meta name="description" content="互動式強化學習作業：比較 Q-learning 與 SARSA 在懸崖行走環境中的學習行為與策略差異。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-glow"></div>
+    <div class="header-content">
+      <div class="header-badge">HW2 — 強化學習</div>
+      <h1>🏔️ Cliff Walking</h1>
+      <p class="header-subtitle">Q-learning vs SARSA — 強化學習演算法比較</p>
+      <div class="header-tags">
+        <span class="tag tag-q">Q-learning (Off-policy)</span>
+        <span class="tag tag-s">SARSA (On-policy)</span>
+        <span class="tag tag-env">Gridworld 4×12</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+
+    <!-- Parameters Panel -->
+    <section class="panel params-panel" id="params-section">
+      <h2 class="section-title">⚙️ 參數設定</h2>
+      <div class="params-grid">
+        <div class="param-item">
+          <label for="epsilon">探索率 ε (epsilon)</label>
+          <div class="slider-row">
+            <input type="range" id="epsilon" min="0.01" max="0.5" step="0.01" value="0.1" />
+            <span class="param-value" id="epsilon-val">0.10</span>
+          </div>
+        </div>
+        <div class="param-item">
+          <label for="alpha">學習率 α (alpha)</label>
+          <div class="slider-row">
+            <input type="range" id="alpha" min="0.01" max="1.0" step="0.01" value="0.5" />
+            <span class="param-value" id="alpha-val">0.50</span>
+          </div>
+        </div>
+        <div class="param-item">
+          <label for="gamma">折扣因子 γ (gamma)</label>
+          <div class="slider-row">
+            <input type="range" id="gamma" min="0.1" max="1.0" step="0.01" value="0.9" />
+            <span class="param-value" id="gamma-val">0.90</span>
+          </div>
+        </div>
+        <div class="param-item">
+          <label for="episodes">訓練回合數 (Episodes)</label>
+          <div class="slider-row">
+            <input type="range" id="episodes" min="100" max="2000" step="100" value="500" />
+            <span class="param-value" id="episodes-val">500</span>
+          </div>
+        </div>
+      </div>
+      <div class="run-section">
+        <button class="run-btn" id="run-btn" onclick="runTraining()">
+          <span class="btn-icon">▶</span> 開始訓練
+        </button>
+        <div class="progress-wrap" id="progress-wrap" style="display:none">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="progress-bar"></div>
+          </div>
+          <span class="progress-label" id="progress-label">訓練中...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Environment Preview -->
+    <section class="panel env-panel" id="env-section">
+      <h2 class="section-title">🗺️ 環境預覽</h2>
+      <p class="section-desc">S = 起點 &nbsp;|&nbsp; G = 終點 &nbsp;|&nbsp; 🟥 = 懸崖 (Cliff)</p>
+      <div class="grid-scroll">
+        <div id="env-grid" class="env-grid"></div>
+      </div>
+    </section>
+
+    <!-- Learning Curve -->
+    <section class="panel chart-panel" id="chart-section">
+      <h2 class="section-title">📈 學習曲線（每回合累積獎勵）</h2>
+      <div class="legend">
+        <span class="legend-item"><span class="dot dot-s"></span>SARSA</span>
+        <span class="legend-item"><span class="dot dot-q"></span>Q-learning</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="learning-chart" width="900" height="320"></canvas>
+      </div>
+    </section>
+
+    <!-- Policy Grids -->
+    <section class="panel policy-panel" id="policy-section">
+      <h2 class="section-title">🧭 學到的策略（Policy）</h2>
+      <div class="policy-grids">
+        <div class="policy-block">
+          <h3 class="policy-title q-title">🧠 Q-learning 策略</h3>
+          <p class="policy-desc">Off-policy：學習理論最優路徑（冒險型，緊貼懸崖）</p>
+          <div class="grid-scroll">
+            <canvas id="q-policy-canvas"></canvas>
+          </div>
+        </div>
+        <div class="policy-block">
+          <h3 class="policy-title s-title">🛡️ SARSA 策略</h3>
+          <p class="policy-desc">On-policy：學習考量探索風險的安全路徑（保守型）</p>
+          <div class="grid-scroll">
+            <canvas id="s-policy-canvas"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Analysis -->
+    <section class="panel analysis-panel" id="analysis-section">
+      <h2 class="section-title">📊 分析比較</h2>
+      <div class="analysis-content" id="analysis-content">
+        <div class="placeholder-msg">請先點擊「開始訓練」以查看分析結果。</div>
+      </div>
+    </section>
+
+    <!-- Theory Section -->
+    <section class="panel theory-panel">
+      <h2 class="section-title">📚 理論說明</h2>
+      <div class="theory-grid">
+        <div class="theory-card theory-q">
+          <h3>Q-learning（Off-policy）</h3>
+          <div class="formula">Q(s,a) ← Q(s,a) + α [r + γ · <span class="max-label">max</span><sub>a'</sub>Q(s',a') − Q(s,a)]</div>
+          <ul>
+            <li>使用下一狀態所有動作的最大值更新</li>
+            <li>不受實際行為策略影響</li>
+            <li>傾向學到理論最優，但訓練期間風險較高</li>
+          </ul>
+        </div>
+        <div class="theory-card theory-s">
+          <h3>SARSA（On-policy）</h3>
+          <div class="formula">Q(s,a) ← Q(s,a) + α [r + γ · Q(s',a') − Q(s,a)]</div>
+          <ul>
+            <li>a' 為 ε-greedy 實際選取的動作</li>
+            <li>更新反映探索策略的影響</li>
+            <li>傾向學到安全、穩定的策略</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <p>強化學習作業 HW2 — Cliff Walking &nbsp;｜&nbsp; Q-learning vs SARSA</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
