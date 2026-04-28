@@ -76,8 +76,8 @@
 
     <!-- Environment Preview -->
     <section class="panel env-panel" id="env-section">
-      <h2 class="section-title">🗺️ 環境預覽</h2>
-      <p class="section-desc">S = 起點 &nbsp;|&nbsp; G = 終點 &nbsp;|&nbsp; 🟥 = 懸崖 (Cliff)</p>
+      <h2 class="section-title">🗺️ 環境描述（Cliff Walking 4×12）</h2>
+      <p class="section-desc">S = 起點（左下角）&nbsp;|&nbsp; G = 終點（右下角）&nbsp;|&nbsp; ☠ = 懸崖（Cliff）— 踏入即受 −100 懲罰並回到起點 | 其餘步驟每步 −1</p>
       <div class="grid-scroll">
         <div id="env-grid" class="env-grid"></div>
       </div>
@@ -85,19 +85,33 @@
 
     <!-- Learning Curve -->
     <section class="panel chart-panel" id="chart-section">
-      <h2 class="section-title">📈 學習曲線（每回合累積獎勵）</h2>
+      <h2 class="section-title">📈 學習曲線 — 每回合累積獎勵（Sum of Rewards）</h2>
       <div class="legend">
-        <span class="legend-item"><span class="dot dot-s"></span>SARSA</span>
         <span class="legend-item"><span class="dot dot-q"></span>Q-learning</span>
+        <span class="legend-item"><span class="dot dot-s"></span>SARSA</span>
+        <span class="legend-note">（曲線已套用 10-episode 滑動平均平滑化）</span>
       </div>
       <div class="chart-wrap">
-        <canvas id="learning-chart" width="900" height="320"></canvas>
+        <canvas id="learning-chart" width="900" height="300"></canvas>
+      </div>
+    </section>
+
+    <!-- Steps per Episode -->
+    <section class="panel chart-panel" id="steps-section">
+      <h2 class="section-title">🦶 步數曲線 — 每回合步數（Steps per Episode）</h2>
+      <div class="legend">
+        <span class="legend-item"><span class="dot dot-q"></span>Q-learning</span>
+        <span class="legend-item"><span class="dot dot-s"></span>SARSA</span>
+        <span class="legend-note">（步數越少代表越快抵達終點；掉崖時重置會造成大量額外步數）</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="steps-chart" width="900" height="260"></canvas>
       </div>
     </section>
 
     <!-- Policy Grids -->
     <section class="panel policy-panel" id="policy-section">
-      <h2 class="section-title">🧭 學到的策略（Policy）</h2>
+      <h2 class="section-title">🧭 學到的策略（Greedy Policy & Optimal Path）</h2>
       <div class="policy-grids">
         <div class="policy-block">
           <h3 class="policy-title q-title">🧠 Q-learning 策略</h3>
@@ -116,6 +130,32 @@
       </div>
     </section>
 
+    <!-- Q-Table Heatmap -->
+    <section class="panel policy-panel" id="heatmap-section">
+      <h2 class="section-title">🌡️ Q-Table 熱力圖（max<sub>a</sub> Q(s,a) 狀態價值）</h2>
+      <div class="heatmap-colorbar-wrap">
+        <span class="colorbar-label">低價值</span>
+        <div class="colorbar"></div>
+        <span class="colorbar-label">高價值</span>
+      </div>
+      <div class="policy-grids">
+        <div class="policy-block">
+          <h3 class="policy-title q-title">🧠 Q-learning Q-Table</h3>
+          <p class="policy-desc">各狀態的最優動作價值；越接近終點、遠離懸崖的狀態價值越高</p>
+          <div class="grid-scroll">
+            <canvas id="q-heatmap-canvas"></canvas>
+          </div>
+        </div>
+        <div class="policy-block">
+          <h3 class="policy-title s-title">🛡️ SARSA Q-Table</h3>
+          <p class="policy-desc">SARSA 的保守估計使終點附近的高價值區域分佈更廣</p>
+          <div class="grid-scroll">
+            <canvas id="s-heatmap-canvas"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Analysis -->
     <section class="panel analysis-panel" id="analysis-section">
       <h2 class="section-title">📊 分析比較</h2>
@@ -129,22 +169,39 @@
       <h2 class="section-title">📚 理論說明</h2>
       <div class="theory-grid">
         <div class="theory-card theory-q">
-          <h3>Q-learning（Off-policy）</h3>
+          <h3>Q-learning（Off-policy TD Control）</h3>
           <div class="formula">Q(s,a) ← Q(s,a) + α [r + γ · <span class="max-label">max</span><sub>a'</sub>Q(s',a') − Q(s,a)]</div>
           <ul>
-            <li>使用下一狀態所有動作的最大值更新</li>
-            <li>不受實際行為策略影響</li>
-            <li>傾向學到理論最優，但訓練期間風險較高</li>
+            <li>更新時選取下一狀態<em>所有動作中的最大值</em></li>
+            <li>學習目標與行為策略解耦（Off-policy）</li>
+            <li>收斂至最優 Q*，但訓練期間因探索而風險較高</li>
           </ul>
+          <pre class="pseudocode">初始化 Q(s,a) = 0
+for 每個回合:
+    s ← 起點
+    while 未到達終點:
+        a ← ε-greedy(Q, s)
+        s', r ← env.step(a)
+        Q(s,a) += α * (r + γ * <span class="max-label">max</span>_a' Q(s',a') - Q(s,a))
+        s ← s'</pre>
         </div>
         <div class="theory-card theory-s">
-          <h3>SARSA（On-policy）</h3>
+          <h3>SARSA（On-policy TD Control）</h3>
           <div class="formula">Q(s,a) ← Q(s,a) + α [r + γ · Q(s',a') − Q(s,a)]</div>
           <ul>
-            <li>a' 為 ε-greedy 實際選取的動作</li>
-            <li>更新反映探索策略的影響</li>
-            <li>傾向學到安全、穩定的策略</li>
+            <li>a' 為 ε-greedy 實際選取的動作（On-policy）</li>
+            <li>更新反映探索策略的影響（含隨機探索風險）</li>
+            <li>學到的策略更保守、穩定，適合安全敏感場景</li>
           </ul>
+          <pre class="pseudocode">初始化 Q(s,a) = 0
+for 每個回合:
+    s ← 起點
+    a ← ε-greedy(Q, s)
+    while 未到達終點:
+        s', r ← env.step(a)
+        a' ← ε-greedy(Q, s')
+        Q(s,a) += α * (r + γ * Q(s',a') - Q(s,a))
+        s ← s' ; a ← a'</pre>
         </div>
       </div>
     </section>
@@ -152,7 +209,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>強化學習作業 HW2 — Cliff Walking &nbsp;｜&nbsp; Q-learning vs SARSA</p>
+    <p>強化學習作業 HW2 — Cliff Walking &nbsp;｜&nbsp; Q-learning vs SARSA &nbsp;｜&nbsp; 環境：4×12 Gridworld</p>
   </footer>
 
   <script src="script.js"></script>

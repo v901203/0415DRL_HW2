@@ -82,24 +82,26 @@ function runQLearning(params) {
   const nA    = 4;
   const Q     = makeQTable(nS, nA);
   const rewards = [];
+  const steps   = [];   // NEW: steps per episode
 
   for (let ep = 0; ep < episodes; ep++) {
     let s = env.reset();
     let totalR = 0;
-    let steps = 0;
-    while (steps < 2000) {
+    let t = 0;
+    while (t < 2000) {
       const a = epsilonGreedy(Q, s, epsilon, nA);
       const { nextState: sp, reward: r, done } = env.step(a);
       // Off-policy update: max over a'
       Q[s][a] += alpha * (r + gamma * maxQ(Q, sp) - Q[s][a]);
       totalR += r;
       s = sp;
-      steps++;
+      t++;
       if (done) break;
     }
     rewards.push(totalR);
+    steps.push(t);
   }
-  return { Q, rewards };
+  return { Q, rewards, steps };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -112,13 +114,14 @@ function runSARSA(params) {
   const nA    = 4;
   const Q     = makeQTable(nS, nA);
   const rewards = [];
+  const steps   = [];   // NEW: steps per episode
 
   for (let ep = 0; ep < episodes; ep++) {
     let s = env.reset();
     let a = epsilonGreedy(Q, s, epsilon, nA);
     let totalR = 0;
-    let steps = 0;
-    while (steps < 2000) {
+    let t = 0;
+    while (t < 2000) {
       const { nextState: sp, reward: r, done } = env.step(a);
       const ap = epsilonGreedy(Q, sp, epsilon, nA);
       // On-policy update: use actual next action a'
@@ -126,12 +129,13 @@ function runSARSA(params) {
       totalR += r;
       s = sp;
       a = ap;
-      steps++;
+      t++;
       if (done) break;
     }
     rewards.push(totalR);
+    steps.push(t);
   }
-  return { Q, rewards };
+  return { Q, rewards, steps };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -162,9 +166,9 @@ function buildEnvGrid(rows, cols) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 6. Learning Curve Chart
+// 6. Generic Line Chart (reusable)
 // ─────────────────────────────────────────────────────────────
-function smoothRewards(arr, w = 10) {
+function smoothData(arr, w = 10) {
   return arr.map((_, i) => {
     const lo = Math.max(0, i - w + 1);
     const slice = arr.slice(lo, i + 1);
@@ -172,28 +176,28 @@ function smoothRewards(arr, w = 10) {
   });
 }
 
-function drawLearningChart(qRewards, sRewards) {
-  const canvas = document.getElementById('learning-chart');
+/**
+ * series: [{ data: number[], color: string, glowColor: string, label: string }]
+ */
+function drawLineChart(canvasId, series, xLabel = 'Episodes', yLabel = 'Value') {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
   const ctx    = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
-  const PAD = { top: 20, right: 24, bottom: 48, left: 60 };
+  const PAD = { top: 20, right: 24, bottom: 48, left: 64 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
   ctx.clearRect(0, 0, W, H);
 
-  // Background
-  ctx.fillStyle = 'rgba(0,0,0,0.0)';
-  ctx.fillRect(0, 0, W, H);
-
-  const qSmooth = smoothRewards(qRewards);
-  const sSmooth = smoothRewards(sRewards);
-  const allVals = [...qSmooth, ...sSmooth];
+  const smoothed = series.map(s => smoothData(s.data));
+  const allVals  = smoothed.flatMap(d => d);
   const minR = Math.min(...allVals);
   const maxR = Math.max(...allVals);
   const range = maxR - minR || 1;
+  const nPts  = series[0].data.length;
 
-  const toX = i => PAD.left + (i / (qRewards.length - 1)) * plotW;
+  const toX = i => PAD.left + (i / (nPts - 1)) * plotW;
   const toY = v => PAD.top + plotH - ((v - minR) / range) * plotH;
 
   // Grid lines
@@ -226,9 +230,8 @@ function drawLearningChart(qRewards, sRewards) {
 
   // X-axis labels
   ctx.textAlign = 'center';
-  const nEp = qRewards.length;
   for (let k = 0; k <= 5; k++) {
-    const ep = Math.round((k / 5) * (nEp - 1));
+    const ep = Math.round((k / 5) * (nPts - 1));
     const x = toX(ep);
     ctx.fillText(ep, x, PAD.top + plotH + 18);
   }
@@ -237,16 +240,16 @@ function drawLearningChart(qRewards, sRewards) {
   ctx.font = '12px Inter, sans-serif';
   ctx.fillStyle = 'rgba(136,146,164,0.7)';
   ctx.textAlign = 'center';
-  ctx.fillText('Episodes', PAD.left + plotW / 2, H - 6);
-
+  ctx.fillText(xLabel, PAD.left + plotW / 2, H - 6);
   ctx.save();
   ctx.translate(14, PAD.top + plotH / 2);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillText('Reward Sum', 0, 0);
+  ctx.fillText(yLabel, 0, 0);
   ctx.restore();
 
-  function drawLine(data, color, glowColor) {
-    // Glow pass
+  // Lines
+  smoothed.forEach((data, si) => {
+    const { color, glowColor } = series[si];
     ctx.save();
     ctx.shadowColor = glowColor;
     ctx.shadowBlur = 8;
@@ -260,14 +263,109 @@ function drawLearningChart(qRewards, sRewards) {
     });
     ctx.stroke();
     ctx.restore();
-  }
+  });
+}
 
-  drawLine(qSmooth, '#ff5f5f', 'rgba(255,95,95,0.5)');
-  drawLine(sSmooth, '#00d4e8', 'rgba(0,212,232,0.5)');
+function drawLearningChart(qRewards, sRewards) {
+  drawLineChart('learning-chart',
+    [
+      { data: qRewards, color: '#ff5f5f', glowColor: 'rgba(255,95,95,0.5)' },
+      { data: sRewards, color: '#00d4e8', glowColor: 'rgba(0,212,232,0.5)' },
+    ],
+    'Episodes', 'Reward Sum'
+  );
+}
+
+function drawStepsChart(qSteps, sSteps) {
+  drawLineChart('steps-chart',
+    [
+      { data: qSteps, color: '#ff5f5f', glowColor: 'rgba(255,95,95,0.5)' },
+      { data: sSteps, color: '#00d4e8', glowColor: 'rgba(0,212,232,0.5)' },
+    ],
+    'Episodes', 'Steps'
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
-// 7. Policy Grid (Canvas arrows)
+// 7. Q-Table Heatmap
+// ─────────────────────────────────────────────────────────────
+function drawQHeatmap(canvasId, Q, rows, cols) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const CELL = 42, GAP = 2;
+  const W = cols * (CELL + GAP) - GAP;
+  const H = rows * (CELL + GAP) - GAP;
+  canvas.width  = W;
+  canvas.height = H;
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  // Compute max Q per state
+  const maxVals = Q.map(row => Math.max(...row));
+
+  // Filter out extreme cliff-penalty states to get a fair range
+  const cliffSet = new Set();
+  for (let c = 1; c < cols - 1; c++) cliffSet.add((rows - 1) * cols + c);
+  const validVals = maxVals.filter((_, i) => !cliffSet.has(i));
+  const minV = Math.min(...validVals);
+  const maxV = Math.max(...validVals);
+  const range = maxV - minV || 1;
+
+  const start = (rows - 1) * cols;
+  const goal  = rows * cols - 1;
+
+  // Color ramp: dark blue → cyan → yellow
+  function valueToColor(t) {
+    // t in [0,1]
+    const r = Math.round(t < 0.5 ? 0 : (t - 0.5) * 2 * 255);
+    const g = Math.round(t < 0.5 ? t * 2 * 200 : 200 + (t - 0.5) * 2 * 55);
+    const b = Math.round(t < 0.5 ? 80 + t * 2 * 100 : Math.max(0, 180 - (t - 0.5) * 2 * 180));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      const x = c * (CELL + GAP);
+      const y = r * (CELL + GAP);
+
+      ctx.beginPath();
+      ctx.roundRect(x, y, CELL, CELL, 5);
+
+      if (cliffSet.has(idx)) {
+        ctx.fillStyle = 'rgba(192,57,43,0.5)';
+      } else if (idx === goal) {
+        ctx.fillStyle = 'rgba(243,156,18,0.6)';
+      } else if (idx === start) {
+        ctx.fillStyle = 'rgba(39,174,96,0.5)';
+      } else {
+        const t = (maxVals[idx] - minV) / range;
+        ctx.fillStyle = valueToColor(Math.max(0, Math.min(1, t)));
+      }
+      ctx.fill();
+
+      // Labels
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const cx = x + CELL / 2, cy = y + CELL / 2;
+      if (idx === goal) {
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Inter,sans-serif'; ctx.fillText('G', cx, cy);
+      } else if (idx === start) {
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 11px Inter,sans-serif'; ctx.fillText('S', cx, cy);
+      } else if (cliffSet.has(idx)) {
+        ctx.fillStyle = '#ff8080'; ctx.font = '12px sans-serif'; ctx.fillText('☠', cx, cy);
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.75)';
+        ctx.font = '9px Inter,sans-serif';
+        ctx.fillText(maxVals[idx].toFixed(1), cx, cy);
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 8. Policy Grid (Canvas arrows)
 // ─────────────────────────────────────────────────────────────
 const ACTION_ARROWS = ['↑', '↓', '←', '→'];
 
@@ -287,7 +385,6 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor, pathStates) {
   const start = (rows - 1) * cols;
   const goal  = rows * cols - 1;
 
-  // Build path lookup: state -> step index
   const pathMap = new Map();
   if (pathStates) {
     pathStates.forEach((s, i) => { if (!pathMap.has(s)) pathMap.set(s, i); });
@@ -300,7 +397,6 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor, pathStates) {
       const y = r * (CELL + GAP);
       const onPath = pathMap.has(idx);
 
-      // Cell background
       ctx.beginPath();
       ctx.roundRect(x, y, CELL, CELL, 5);
 
@@ -311,7 +407,6 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor, pathStates) {
       } else if (cliffSet.has(idx)) {
         ctx.fillStyle = 'rgba(192,57,43,0.4)';
       } else if (onPath) {
-        // Path cell: brighter tinted background
         const rgb = qColor === '#ff5f5f' ? '255,95,95' : '0,212,232';
         ctx.fillStyle = `rgba(${rgb},0.18)`;
       } else {
@@ -319,7 +414,6 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor, pathStates) {
       }
       ctx.fill();
 
-      // Border: highlighted for path cells
       if (onPath && idx !== start && idx !== goal) {
         ctx.strokeStyle = qColor;
         ctx.lineWidth = 2;
@@ -329,26 +423,18 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor, pathStates) {
       }
       ctx.stroke();
 
-      // Label or arrow
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const cx = x + CELL / 2;
       const cy = y + CELL / 2;
 
       if (idx === goal) {
-        ctx.fillStyle = '#f9d06f';
-        ctx.font = 'bold 12px Inter, sans-serif';
-        ctx.fillText('G', cx, cy);
+        ctx.fillStyle = '#f9d06f'; ctx.font = 'bold 12px Inter, sans-serif'; ctx.fillText('G', cx, cy);
       } else if (idx === start) {
-        ctx.fillStyle = '#5dde8a';
-        ctx.font = 'bold 12px Inter, sans-serif';
-        ctx.fillText('S', cx, cy);
+        ctx.fillStyle = '#5dde8a'; ctx.font = 'bold 12px Inter, sans-serif'; ctx.fillText('S', cx, cy);
       } else if (cliffSet.has(idx)) {
-        ctx.fillStyle = '#ff8080';
-        ctx.font = '13px sans-serif';
-        ctx.fillText('☠', cx, cy);
+        ctx.fillStyle = '#ff8080'; ctx.font = '13px sans-serif'; ctx.fillText('☠', cx, cy);
       } else {
-        // Best action arrow
         const qRow = Q[idx];
         let best = 0;
         for (let a = 1; a < qRow.length; a++) if (qRow[a] > qRow[best]) best = a;
@@ -357,7 +443,6 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor, pathStates) {
         ctx.fillText(ACTION_ARROWS[best], cx, cy);
       }
 
-      // Step number badge on path cells (skip start/goal)
       if (onPath && idx !== start && idx !== goal && !cliffSet.has(idx)) {
         const step = pathMap.get(idx);
         ctx.fillStyle = qColor;
@@ -369,7 +454,6 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor, pathStates) {
     }
   }
 
-  // Draw connecting line between path cells
   if (pathStates && pathStates.length > 1) {
     ctx.save();
     ctx.strokeStyle = qColor;
@@ -391,7 +475,7 @@ function drawPolicyCanvas(canvasId, Q, rows, cols, qColor, pathStates) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 8. Greedy path extraction
+// 9. Greedy path extraction
 // ─────────────────────────────────────────────────────────────
 function greedyPath(Q, rows, cols) {
   const env = new CliffWalkingEnv(rows, cols);
@@ -412,7 +496,7 @@ function greedyPath(Q, rows, cols) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 9. Statistical helpers
+// 10. Statistical helpers
 // ─────────────────────────────────────────────────────────────
 function std(arr) {
   const n = arr.length;
@@ -431,7 +515,7 @@ function convergenceEpisode(rewards, threshold, window = 50) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 10. Analysis section
+// 11. Analysis section
 // ─────────────────────────────────────────────────────────────
 function updateAnalysis(qRewards, sRewards, qQ, sQ, params, qPath, sPath, qGoal, sGoal) {
   const { epsilon } = params;
@@ -544,7 +628,7 @@ function updateAnalysis(qRewards, sRewards, qQ, sQ, params, qPath, sPath, qGoal,
 }
 
 // ─────────────────────────────────────────────────────────────
-// 11. Progress simulation (async)
+// 12. Progress simulation (async)
 // ─────────────────────────────────────────────────────────────
 function setProgress(pct, label) {
   document.getElementById('progress-bar').style.width = pct + '%';
@@ -554,7 +638,7 @@ function setProgress(pct, label) {
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ─────────────────────────────────────────────────────────────
-// 12. Main: Run Training
+// 13. Main: Run Training
 // ─────────────────────────────────────────────────────────────
 async function runTraining() {
   const epsilon  = parseFloat(document.getElementById('epsilon').value);
@@ -565,31 +649,36 @@ async function runTraining() {
 
   const params = { rows, cols, epsilon, alpha, gamma, episodes };
 
-  // UI: start
   const btn = document.getElementById('run-btn');
   btn.disabled = true;
   document.getElementById('progress-wrap').style.display = 'flex';
   setProgress(0, 'Q-learning 訓練中...');
   await sleep(30);
 
-  // Run Q-learning
   const qResult = runQLearning(params);
-  setProgress(50, 'SARSA 訓練中...');
+  setProgress(40, 'SARSA 訓練中...');
   await sleep(30);
 
-  // Run SARSA
   const sResult = runSARSA(params);
-  setProgress(90, '繪製視覺化...');
+  setProgress(75, '繪製視覺化...');
   await sleep(30);
 
-  // Compute greedy paths
   const { path: qPath, reachedGoal: qGoal } = greedyPath(qResult.Q, rows, cols);
   const { path: sPath, reachedGoal: sGoal } = greedyPath(sResult.Q, rows, cols);
 
-  // Draw
+  // Existing charts
   drawLearningChart(qResult.rewards, sResult.rewards);
+  drawStepsChart(qResult.steps, sResult.steps);
+
+  // Policy canvases
   drawPolicyCanvas('q-policy-canvas', qResult.Q, rows, cols, '#ff5f5f', qPath);
   drawPolicyCanvas('s-policy-canvas', sResult.Q, rows, cols, '#00d4e8', sPath);
+
+  // Heatmaps
+  drawQHeatmap('q-heatmap-canvas', qResult.Q, rows, cols);
+  drawQHeatmap('s-heatmap-canvas', sResult.Q, rows, cols);
+
+  // Analysis
   updateAnalysis(qResult.rewards, sResult.rewards, qResult.Q, sResult.Q, params, qPath, sPath, qGoal, sGoal);
 
   setProgress(100, '完成！');
@@ -600,7 +689,7 @@ async function runTraining() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 13. Slider live update + Init
+// 14. Slider live update + Init
 // ─────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   const sliders = [
@@ -617,6 +706,5 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Build environment grid
   buildEnvGrid(4, 12);
 });
